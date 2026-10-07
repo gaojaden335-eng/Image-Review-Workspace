@@ -1,96 +1,133 @@
-# Image Selection System (图像筛选与标注系统)
+# Image Review Workspace
 
-这是一个高性能的图像筛选与管理系统，旨在帮助团队高效地处理大规模图像数据集。系统包含一个强大的后端 API、一个用于高强度筛选任务的桌面客户端，以及一个用于管理和Web访问的前端应用。
+一个用于图像导入、筛选、复核与结果管理的完整工作台。项目同时提供 Web 管理界面、Windows 桌面筛选工具和独立后端 API，适合在本地或受控服务器环境中部署。
 
-## 📂 项目结构
+## 项目能做什么
 
-项目由以下三个主要部分组成：
+典型工作流如下：
 
-- **`Backend/`**: 基于 .NET 8 Web API 的后端服务，负责数据持久化、业务逻辑和图像处理。
-- **`DesktopClient/`**: 基于 Windows Forms (.NET 8) 的桌面客户端，专为高性能图片浏览和快速筛选设计。
-- **`frontend/`**: 基于 Vue 3 + TypeScript + Vite 的现代 Web 前端，提供用户管理、项目概览和 Web 端筛选功能。
+1. 管理员创建项目并导入图片。
+2. 用户通过 Web 端或桌面端领取和筛选图片。
+3. 筛选结果统一保存到数据库中，便于复核、统计和导出。
+4. 管理员在 Web 端管理用户、任务队列与项目进度。
 
-## 🛠 技术栈
+系统支持多项目、批量上传、任务分配、角色权限、筛选结果导出，以及桌面端的快捷键和图片预加载。
 
-- **后端**: .NET 8, Entity Framework Core, MySQL 8.0+, JWT Auth
-- **桌面端**: .NET 8, WinForms, HttpClient
-- **前端**: Vue 3, TypeScript, Vite, Pinia
-- **数据库**: MySQL 8
+## 应用组成
 
-## 🚀 快速开始指南
+| 目录 | 用途 | 主要技术 |
+| --- | --- | --- |
+| `Backend/` | REST API、认证授权、数据与文件管理 | .NET 8、Entity Framework Core、MySQL |
+| `frontend/` | 项目、用户、队列和图片的 Web 管理界面 | Vue 3、TypeScript、Vite、Pinia |
+| `DesktopClient/` | 面向连续筛选任务的 Windows 客户端 | .NET 8、WinForms |
+| `Backend.Tests/` | 后端策略和关键行为的自动化测试 | xUnit |
 
-### 1. 准备工作
+## 当前版本的安全设计
 
-确保您的开发环境安装了以下工具：
-- [.NET 8 SDK](https://dotnet.microsoft.com/download)
-- [Node.js](https://nodejs.org/) (v20.19+ 或 v22.12+)
-- [MySQL Server](https://dev.mysql.com/downloads/installer/) (8.0 或更高版本)
+- 仓库不包含数据库密码、JWT 密钥或预设账号。
+- Web 登录令牌保存在 `HttpOnly` Cookie 中，前端脚本无法直接读取。
+- 图片文件通过受保护的 API 返回，而不是作为公开静态目录暴露。
+- 上传会检查扩展名、文件签名、单文件大小、批次大小和文件数量。
+- 登录和注册接口启用了基于 IP 的请求频率限制。
+- 数据库迁移失败时服务会停止启动，避免在未知结构上继续运行。
 
-### 2. 后端设置 (Backend)
+## 本地运行
 
-后端是系统的核心，必须首先启动。
+### 环境要求
 
-1.  **配置本地环境变量**:
-    为避免泄露密码和密钥，项目不在代码库中保存真实凭据。启动前请在本地配置以下环境变量：
+- .NET 8 SDK
+- Node.js 20.19+ 或 22.12+
+- MySQL 8.0+
+- Windows（仅桌面客户端需要）
 
-    ```powershell
-    $env:ConnectionStrings__DefaultConnection = "<your-mysql-connection-string>"
-    $env:JwtSettings__SecretKey = "<at-least-32-random-characters>"
-    $env:DefaultAdmin__Username = "<initial-admin-username>"
-    $env:DefaultAdmin__Password = "<initial-admin-password>"
-    ```
+### 1. 配置后端
 
-    管理员的两个环境变量可选；如果不设置，系统不会创建公开的默认账号。请勿将真实值写入 README、`appsettings*.json` 或提交到 Git。
+先在当前 PowerShell 会话中设置本地环境变量。以下内容全部是占位符，请替换后使用，不要把真实值提交到 Git：
 
-2.  **应用迁移**:
-    在 `Backend` 目录下运行：
-    ```bash
-    dotnet ef database update
-    ```
+```powershell
+$env:ConnectionStrings__DefaultConnection = "<your-mysql-connection-string>"
+$env:JwtSettings__SecretKey = "<at-least-32-random-characters>"
+$env:DefaultAdmin__Username = "<optional-initial-admin>"
+$env:DefaultAdmin__Password = "<optional-strong-password>"
+```
 
-3.  **启动服务**:
-    ```bash
-    cd Backend
-    dotnet run
-    ```
-    服务默认运行在 `http://localhost:5097`。
-    
-    > 📄 **详细文档**: 请参阅 [Backend/DEPLOY.md](Backend/DEPLOY.md)
+`DefaultAdmin` 两项是可选的；不设置时，应用不会创建初始管理员。数据库迁移会在后端启动时自动执行。
 
-### 3. 桌面客户端 (DesktopClient)
+启动 API：
 
-1.  打开 `Backend.sln` 或直接进入 `DesktopClient` 目录。
-2.  编译并运行 `DesktopClient` 项目。
-3.  在登录界面输入后端 API 地址，并使用你在本地配置的初始管理员账号登录。
+```powershell
+dotnet run --project Backend/Backend.csproj
+```
 
-    > 📄 **使用说明**: 请参阅 [DesktopClient/README.md](DesktopClient/README.md)
+开发环境默认地址为 `http://localhost:5097`。
 
-### 4. 前端应用 (Frontend)
+### 2. 启动 Web 界面
 
-1.  进入前端目录：
-    ```bash
-    cd frontend
-    ```
-2.  安装依赖：
-    ```bash
-    npm ci
-    ```
-3.  启动开发服务器：
-    ```bash
-    npm run dev
-    ```
+另开一个终端并运行：
 
-    > 📄 **部署文档**: 请参阅 [frontend/DEPLOY.md](frontend/DEPLOY.md)
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
 
-## ✨ 主要功能
+### 3. 启动桌面客户端
 
-- **多项目管理**: 创建不同的筛选项目，支持批量导入图片。
-- **任务队列**: 将图片分发到不同的队列，支持多人协作。
-- **高效筛选**: 桌面端支持键盘快捷键、预加载缓存，实现毫秒级图片切换。
-- **数据导出**: 支持将筛选结果导出为 Excel 或直接复制文件。
-- **权限控制**: 基于角色的访问控制 (RBAC)。
+在 Windows 上运行：
 
-## 📝 注意事项
+```powershell
+dotnet run --project DesktopClient/DesktopClient.csproj
+```
 
-- **图片存储**: 上传的图片默认存储在 `Backend/uploads` 目录下，请确保该目录有写入权限。
-- **API 地址**: 桌面端和前端都需要正确配置后端 API 的地址才能正常工作。
+首次登录前，请在客户端中确认后端 API 地址正确。
+
+## 账号与权限
+
+系统使用三个角色：
+
+- `Admin`：管理项目、用户、任务和全部图片。
+- `User`：执行已授权的筛选与复核任务。
+- `Guest`：新注册账号的默认状态，需要管理员审核后才能参与任务。
+
+生产环境应使用 HTTPS，并通过安全的服务器配置或密钥管理服务注入连接字符串和 JWT 密钥。
+
+## 验证项目
+
+运行后端测试：
+
+```powershell
+dotnet test Backend/Backend.sln
+```
+
+验证前端生产构建：
+
+```powershell
+cd frontend
+npm ci
+npm run build
+```
+
+GitHub Actions 会在推送到 `main` 或创建拉取请求时执行这两项检查。
+
+## 数据与隐私
+
+- 上传文件默认保存在 `Backend/uploads/`，该目录不会提交到仓库。
+- 请勿提交 `.env`、真实连接字符串、访问令牌、账号密码或业务图片。
+- 发布日志和问题报告前，请检查其中是否包含本地路径、用户信息或服务地址。
+- 如需公开演示，建议使用专门生成的示例图片和独立测试数据库。
+
+## 更多文档
+
+- [后端部署说明](Backend/DEPLOY.md)
+- [桌面客户端说明](DesktopClient/README.md)
+- [前端部署说明](frontend/DEPLOY.md)
+
+## 默认上传限制
+
+| 限制项 | 默认值 |
+| --- | ---: |
+| 单个文件 | 100 MB |
+| 单次请求总量 | 512 MB |
+| 单次文件数量 | 500 |
+
+这些限制可以在后端配置中按部署环境调整。调整服务器限制时，也应同步检查反向代理和数据库的相关配置。
