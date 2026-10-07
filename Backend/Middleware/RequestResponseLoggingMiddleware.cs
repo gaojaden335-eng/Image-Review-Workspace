@@ -42,7 +42,7 @@ public class RequestResponseLoggingMiddleware
             // 如果状态码是错误状态，记录日志
             if (context.Response.StatusCode >= StatusCodes.Status400BadRequest)
             {
-                var logEntry = BuildLogEntry(context, correlationId, sw.ElapsedMilliseconds, null, null);
+                var logEntry = BuildLogEntry(context, correlationId, sw.ElapsedMilliseconds, null);
                 await WriteLogAsync(logEntry);
                 _logger.LogWarning("导出请求错误: {Path} {StatusCode} CorrelationId={CorrelationId}",
                     context.Request.Path, context.Response.StatusCode, correlationId);
@@ -52,17 +52,11 @@ public class RequestResponseLoggingMiddleware
         }
 
         var stopwatch = Stopwatch.StartNew();
-        var originalBodyStream = context.Response.Body;
 
-        await using var responseBody = new MemoryStream();
-        context.Response.Body = responseBody;
 
         // 直接调用下一个中间件，不再捕获异常
         await _next(context);
 
-        responseBody.Seek(0, SeekOrigin.Begin);
-        var responseText = await new StreamReader(responseBody).ReadToEndAsync();
-        responseBody.Seek(0, SeekOrigin.Begin);
 
         var elapsedMs = stopwatch.ElapsedMilliseconds;
 
@@ -73,8 +67,7 @@ public class RequestResponseLoggingMiddleware
                 context,
                 correlationId,
                 elapsedMs,
-                Truncate(responseText, 4000),
-                null); // 不再记录异常，因为已经由全局处理器处理
+                null);
 
             await WriteLogAsync(logEntry);
 
@@ -111,53 +104,30 @@ public class RequestResponseLoggingMiddleware
                 correlationId);
         }
 
-        await responseBody.CopyToAsync(originalBodyStream);
-        context.Response.Body = originalBodyStream;
     }
 
     private string BuildLogEntry(
         HttpContext context,
         string correlationId,
         long elapsedMs,
-        string? responseBody,
-        Exception? exception)
+        string? exceptionType)
     {
         var request = context.Request;
         var statusCode = context.Response.StatusCode;
-        var user = context.User?.Identity?.IsAuthenticated == true
-            ? context.User.Identity!.Name
-            : "anonymous";
-
         var logBuilder = new StringBuilder();
         logBuilder.AppendLine($"[{DateTime.UtcNow:O}] CorrelationId={correlationId}");
         logBuilder.AppendLine($"Status={statusCode}, DurationMs={elapsedMs}");
-        logBuilder.AppendLine($"Request: {request.Method} {request.Path}{request.QueryString}");
-        logBuilder.AppendLine($"User={user}, RemoteIP={context.Connection.RemoteIpAddress}");
-        logBuilder.AppendLine($"ContentType={request.ContentType}, ContentLength={request.ContentLength ?? 0}, UserAgent={request.Headers["User-Agent"]}");
+        logBuilder.AppendLine($"Request: {request.Method} {request.Path}");
+        logBuilder.AppendLine($"ContentType={request.ContentType}, ContentLength={request.ContentLength ?? 0}");
 
-        if (!string.IsNullOrWhiteSpace(responseBody))
+        if (!string.IsNullOrWhiteSpace(exceptionType))
         {
-            logBuilder.AppendLine($"ResponseBody={responseBody}");
-        }
-
-        if (exception != null)
-        {
-            logBuilder.AppendLine($"Exception={exception}");
+            logBuilder.AppendLine($"ExceptionType={exceptionType}");
         }
 
         logBuilder.AppendLine(new string('-', 80));
 
         return logBuilder.ToString();
-    }
-
-    private static string Truncate(string value, int maxLength)
-    {
-        if (string.IsNullOrEmpty(value) || value.Length <= maxLength)
-        {
-            return value;
-        }
-
-        return value.Substring(0, maxLength) + "...(truncated)";
     }
 
     private async Task WriteLogAsync(string content)

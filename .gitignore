@@ -1,6 +1,8 @@
 # .NET
 Backend/bin/
 Backend/obj/
+Backend.Tests/bin/
+Backend.Tests/obj/
 Backend/*.user
 Backend/*.suo
 Backend/*.cache
@@ -57,10 +59,7 @@ secrets.json
 Thumbs.db
 .DS_Store
 
-# Package files
-package-lock.json
-frontend/package-lock.json
-Backend/package-lock.json
+# Dependency lock files are committed for reproducible builds.
 
 # SQLite database (should NOT be committed)
 Backend/*.db

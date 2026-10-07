@@ -99,7 +99,7 @@ namespace ImageAnnotationApp.Services
                 };
                 return response;
             }
-            catch (Exception ex)
+            catch
             {
                 // 直接抛出原始错误，不再包装
                 throw;

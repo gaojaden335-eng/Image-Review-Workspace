@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios'
+import type { AxiosInstance, AxiosError } from 'axios'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -12,21 +12,8 @@ const apiClient: AxiosInstance = axios.create({
   },
   maxContentLength: Infinity,
   maxBodyLength: Infinity,
+  withCredentials: true,
 })
-
-// 请求拦截器
-apiClient.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
-    const token = localStorage.getItem('token')
-    if (token && config.headers) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-    return config
-  },
-  (error: AxiosError) => {
-    return Promise.reject(error)
-  }
-)
 
 // 响应拦截器
 apiClient.interceptors.response.use(
@@ -36,8 +23,7 @@ apiClient.interceptors.response.use(
   (error: AxiosError) => {
     if (error.response?.status === 401) {
       // Token 过期或无效，清除本地存储并跳转到登录页
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
+      sessionStorage.removeItem('user')
       window.location.href = '/login'
     }
     return Promise.reject(error)
@@ -46,4 +32,3 @@ apiClient.interceptors.response.use(
 
 export default apiClient
 export { API_BASE_URL }
-

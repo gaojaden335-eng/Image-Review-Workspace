@@ -314,8 +314,8 @@ const goToUserView = () => {
   router.push('/projects')
 }
 
-const handleLogout = () => {
-  authStore.logout()
+const handleLogout = async () => {
+  await authStore.logout()
   router.push('/login')
 }
 </script>
@@ -372,4 +372,3 @@ const handleLogout = () => {
   margin-right: 5px;
 }
 </style>
-

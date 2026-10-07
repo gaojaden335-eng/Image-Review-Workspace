@@ -86,8 +86,8 @@ const goToQueues = (projectId: number) => {
   router.push(`/projects/${projectId}/queues`)
 }
 
-const handleLogout = () => {
-  authStore.logout()
+const handleLogout = async () => {
+  await authStore.logout()
   router.push('/login')
 }
 
@@ -163,4 +163,3 @@ const formatDate = (dateString: string) => {
   color: #909399;
 }
 </style>
-

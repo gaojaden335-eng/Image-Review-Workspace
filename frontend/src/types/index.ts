@@ -16,6 +16,7 @@ export interface RegisterDto {
 }
 
 export interface AuthResponse {
+  userId: number
   token: string
   username: string
   role: string
@@ -112,4 +113,3 @@ export interface UserProgress {
   progressPercentage: number
   lastUpdated: string
 }
-

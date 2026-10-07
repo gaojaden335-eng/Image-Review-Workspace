@@ -18,7 +18,7 @@ public interface IFileStorageService
     /// <summary>
     /// 获取文件
     /// </summary>
-    Task<byte[]?> GetFileAsync(string filePath);
+    Task<Stream?> OpenReadAsync(string filePath);
 
     /// <summary>
     /// 文件是否存在

@@ -9,7 +9,7 @@ public class RegisterDto
     public string Username { get; set; } = string.Empty;
 
     [Required(ErrorMessage = "密码是必需的")]
-    [StringLength(100, MinimumLength = 6, ErrorMessage = "密码长度必须至少为6个字符")]
+    [StringLength(100, MinimumLength = 8, ErrorMessage = "密码长度必须至少为8个字符")]
     public string Password { get; set; } = string.Empty;
 }
 
@@ -30,4 +30,3 @@ public class AuthResponseDto
     public string Role { get; set; } = string.Empty;
     public DateTime ExpiresAt { get; set; }
 }
-

@@ -23,7 +23,7 @@
 
 确保您的开发环境安装了以下工具：
 - [.NET 8 SDK](https://dotnet.microsoft.com/download)
-- [Node.js](https://nodejs.org/) (v16+)
+- [Node.js](https://nodejs.org/) (v20.19+ 或 v22.12+)
 - [MySQL Server](https://dev.mysql.com/downloads/installer/) (8.0 或更高版本)
 
 ### 2. 后端设置 (Backend)
@@ -53,7 +53,7 @@
     cd Backend
     dotnet run
     ```
-    服务默认运行在 `http://localhost:5000`。
+    服务默认运行在 `http://localhost:5097`。
     
     > 📄 **详细文档**: 请参阅 [Backend/DEPLOY.md](Backend/DEPLOY.md)
 
@@ -73,7 +73,7 @@
     ```
 2.  安装依赖：
     ```bash
-    npm install
+    npm ci
     ```
 3.  启动开发服务器：
     ```bash

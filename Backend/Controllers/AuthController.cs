@@ -2,7 +2,9 @@ using Backend.Data;
 using Backend.DTOs;
 using Backend.Models;
 using Backend.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using BCrypt.Net;
 
@@ -24,6 +26,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("register")]
+    [EnableRateLimiting("auth")]
     public async Task<ActionResult<AuthResponseDto>> Register([FromBody] RegisterDto registerDto)
     {
         if (!ModelState.IsValid)
@@ -55,6 +58,7 @@ public class AuthController : ControllerBase
         // Generate JWT token
         var token = _jwtService.GenerateToken(user.Id, user.Username, user.Role);
         var expiryInHours = int.Parse(_configuration["JwtSettings:ExpiryInHours"]!);
+        SetAuthCookie(token, expiryInHours);
 
         return Ok(new AuthResponseDto
         {
@@ -67,6 +71,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
+    [EnableRateLimiting("auth")]
     public async Task<ActionResult<AuthResponseDto>> Login([FromBody] LoginDto loginDto)
     {
         if (!ModelState.IsValid)
@@ -76,20 +81,15 @@ public class AuthController : ControllerBase
 
         // Find user
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == loginDto.Username);
-        if (user == null)
+        if (user == null || !BCrypt.Net.BCrypt.Verify(loginDto.Password, user.PasswordHash))
         {
-            return Unauthorized(new { message = "登录失败：用户名不存在" });
-        }
-
-        // Verify password
-        if (!BCrypt.Net.BCrypt.Verify(loginDto.Password, user.PasswordHash))
-        {
-            return Unauthorized(new { message = "登录失败：密码错误" });
+            return Unauthorized(new { message = "登录失败：用户名或密码错误" });
         }
 
         // Generate JWT token
         var token = _jwtService.GenerateToken(user.Id, user.Username, user.Role);
         var expiryInHours = int.Parse(_configuration["JwtSettings:ExpiryInHours"]!);
+        SetAuthCookie(token, expiryInHours);
 
         return Ok(new AuthResponseDto
         {
@@ -101,10 +101,30 @@ public class AuthController : ControllerBase
         });
     }
 
-    [HttpGet("test")]
-    public ActionResult Test()
+    [Authorize]
+    [HttpPost("logout")]
+    public IActionResult Logout()
     {
-        return Ok(new { message = "Auth Controller is working!" });
+        Response.Cookies.Delete("access_token", new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = Request.IsHttps,
+            SameSite = SameSiteMode.Strict,
+            Path = "/"
+        });
+        return NoContent();
     }
-}
 
+    private void SetAuthCookie(string token, int expiryInHours)
+    {
+        Response.Cookies.Append("access_token", token, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = Request.IsHttps,
+            SameSite = SameSiteMode.Strict,
+            Path = "/",
+            Expires = DateTimeOffset.UtcNow.AddHours(expiryInHours)
+        });
+    }
+
+}

@@ -37,15 +37,9 @@ public class ImageProcessingService : IImageProcessingService
             imageStream.Position = 0;
             metadata.FileSize = imageStream.Length;
         }
-        catch
+        catch (Exception ex) when (ex is UnknownImageFormatException or InvalidImageContentException)
         {
-            // 如果无法加载图片，仅计算哈希和大小
-            imageStream.Position = 0;
-            metadata.FileHash = await _fileStorage.ComputeFileHashAsync(imageStream);
-            imageStream.Position = 0;
-            metadata.FileSize = imageStream.Length;
-            metadata.Width = 0;
-            metadata.Height = 0;
+            throw new InvalidDataException("上传的文件不是可识别的图片", ex);
         }
         finally
         {

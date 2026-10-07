@@ -152,7 +152,7 @@ public class ExportController : ControllerBase
     }
 
     [HttpGet("progress")]
-    public async Task<IActionResult> ExportProgress([FromQuery] int? queueId = null, [FromQuery] string format = "csv")
+    public IActionResult ExportProgress([FromQuery] int? queueId = null, [FromQuery] string format = "csv")
     {
         if (format.ToLower() == "csv")
         {
@@ -286,4 +286,3 @@ public class ExportController : ControllerBase
         }
     }
 }
-

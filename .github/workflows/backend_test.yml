@@ -1,16 +1,16 @@
 # This workflow will build a .NET project
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-net
 
-name: .NET
+name: Build and test
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "main" ]
 
 jobs:
-  build:
+  backend:
 
     runs-on: ubuntu-latest
 
@@ -21,8 +21,25 @@ jobs:
       with:
         dotnet-version: 8.0.x
     - name: Restore dependencies
-      run: cd Backend && dotnet restore
+      run: dotnet restore Backend/Backend.sln
     - name: Build
-      run: cd Backend && dotnet build --no-restore
+      run: dotnet build Backend/Backend.sln --no-restore --configuration Release
     - name: Test
-      run: cd Backend && dotnet test --no-build --verbosity normal
+      run: dotnet test Backend/Backend.sln --no-build --configuration Release --verbosity normal
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: frontend/package-lock.json
+    - name: Install dependencies
+      working-directory: frontend
+      run: npm ci
+    - name: Build
+      working-directory: frontend
+      run: npm run build

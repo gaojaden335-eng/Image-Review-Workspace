@@ -48,7 +48,7 @@
             >
               <div class="image-wrapper">
                 <img 
-                  :src="getImageUrl(image.filePath)" 
+                  :src="getImageUrl(image.id)"
                   :alt="image.fileName"
                 />
               </div>
@@ -95,7 +95,6 @@ import { imagesApi } from '../../api/images'
 import { selectionsApi } from '../../api/selections'
 import { ElMessage } from 'element-plus'
 import { CircleCheck } from '@element-plus/icons-vue'
-import { API_BASE_URL } from '../../api/config'
 import type { ImageGroup, UserProgress } from '../../types'
 
 const router = useRouter()
@@ -108,6 +107,7 @@ const imageGroup = ref<ImageGroup | null>(null)
 const selectedImageId = ref<number | null>(null)
 const progress = ref<UserProgress | null>(null)
 const completed = ref(false)
+const imageUrls = ref<Record<number, string>>({})
 
 // 自动提交选项
 const AUTO_SUBMIT_KEY = 'image-selection-auto-submit'
@@ -425,7 +425,22 @@ onUnmounted(() => {
     clearTimeout(autoSubmitTimer)
     autoSubmitTimer = null
   }
+  clearImageUrls()
 })
+
+const clearImageUrls = () => {
+  Object.values(imageUrls.value).forEach(url => URL.revokeObjectURL(url))
+  imageUrls.value = {}
+}
+
+const loadImageUrls = async (group: ImageGroup) => {
+  clearImageUrls()
+  const entries = await Promise.all(group.images.map(async image => {
+    const blob = await imagesApi.getImageBlob(image.filePath)
+    return [image.id, URL.createObjectURL(blob)] as const
+  }))
+  imageUrls.value = Object.fromEntries(entries)
+}
 
 const loadProgress = async () => {
   try {
@@ -446,6 +461,7 @@ const loadNextGroup = async () => {
       imageGroup.value = result as ImageGroup
       selectedImageId.value = null
       imageDimensions.value.clear()
+      await loadImageUrls(imageGroup.value)
       // 重新计算布局
       await updateLayout()
     }
@@ -505,16 +521,16 @@ const submitSelection = async () => {
   }
 }
 
-const getImageUrl = (filePath: string) => {
-  return `${API_BASE_URL}${filePath}`
+const getImageUrl = (imageId: number) => {
+  return imageUrls.value[imageId] ?? ''
 }
 
 const goBack = () => {
   router.back()
 }
 
-const handleLogout = () => {
-  authStore.logout()
+const handleLogout = async () => {
+  await authStore.logout()
   router.push('/login')
 }
 </script>
@@ -716,4 +732,3 @@ const handleLogout = () => {
   font-size: 16px;
 }
 </style>
-

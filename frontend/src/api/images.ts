@@ -2,6 +2,14 @@ import apiClient from './config'
 import type { Image, ImageGroup } from '../types'
 
 export const imagesApi = {
+  getImageBlob: async (filePath: string): Promise<Blob> => {
+    const response = await apiClient.get('/images/file', {
+      params: { path: filePath },
+      responseType: 'blob',
+    })
+    return response.data
+  },
+
   // 获取队列的所有图片
   getQueueImages: async (queueId: number): Promise<Image[]> => {
     const response = await apiClient.get<Image[]>(`/images/queue/${queueId}`)
@@ -123,4 +131,3 @@ export const imagesApi = {
     await apiClient.delete(`/images/${id}`)
   },
 }
-

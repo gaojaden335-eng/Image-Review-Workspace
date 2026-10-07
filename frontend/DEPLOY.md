@@ -82,10 +82,8 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
-    # 可选：代理后端上传的静态资源
-    location /uploads/ {
-        proxy_pass http://localhost:5000/uploads/;
-    }
+    # 图片通过需要 JWT 的 /api/images/file 获取，
+    # 不要对外暴露后端 uploads 目录。
 }
 ```
 

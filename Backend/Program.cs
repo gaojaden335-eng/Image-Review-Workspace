@@ -5,9 +5,10 @@ using Backend.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
+using System.Threading.RateLimiting;
 using System.Text;
 using System.Text.Json;
 
@@ -21,17 +22,20 @@ builder.Logging.AddDebug();
 // 减少EF Core的SQL日志噪音（只记录警告和错误）
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
 
+var maxRequestBodySize = builder.Configuration.GetValue<long>(
+    "UploadLimits:MaxBatchSizeBytes", 512L * 1024 * 1024);
+
 // Configure Kestrel server limits for file uploads
 builder.WebHost.ConfigureKestrel(serverOptions =>
 {
-    serverOptions.Limits.MaxRequestBodySize = 2L * 1024 * 1024 * 1024; // 2 GB
+    serverOptions.Limits.MaxRequestBodySize = maxRequestBodySize;
     serverOptions.Limits.RequestHeadersTimeout = TimeSpan.FromMinutes(5);
 });
 
 // Configure form options for multipart/form-data
 builder.Services.Configure<FormOptions>(options =>
 {
-    options.MultipartBodyLengthLimit = 2L * 1024 * 1024 * 1024; // 2 GB
+    options.MultipartBodyLengthLimit = maxRequestBodySize;
     options.ValueLengthLimit = int.MaxValue;
     options.ValueCountLimit = int.MaxValue;
     options.MultipartHeadersLengthLimit = int.MaxValue;
@@ -116,7 +120,10 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     if (builder.Environment.IsDevelopment())
     {
         options.EnableDetailedErrors();
-        options.EnableSensitiveDataLogging();
+        if (builder.Configuration.GetValue<bool>("Diagnostics:EnableSensitiveDataLogging"))
+        {
+            options.EnableSensitiveDataLogging();
+        }
     }
 });
 
@@ -136,6 +143,19 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            if (string.IsNullOrEmpty(context.Token) &&
+                context.Request.Cookies.TryGetValue("access_token", out var cookieToken))
+            {
+                context.Token = cookieToken;
+            }
+
+            return Task.CompletedTask;
+        }
+    };
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = true,
@@ -149,13 +169,31 @@ builder.Services.AddAuthentication(options =>
 });
 
 builder.Services.AddAuthorization();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("auth", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+});
 
 // Configure CORS
 builder.Services.AddCors(options =>
 {
+    var allowedOrigins = builder.Configuration
+        .GetSection("Cors:AllowedOrigins")
+        .Get<string[]>() ?? Array.Empty<string>();
+
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins("http://localhost:5174", "http://localhost:3000")
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
@@ -201,7 +239,8 @@ using (var scope = app.Services.CreateScope())
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"Database initialization error: {ex.Message}");
+        app.Logger.LogCritical(ex, "Database initialization failed. The application will stop.");
+        throw;
     }
 }
 
@@ -214,41 +253,6 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors("AllowFrontend");
 
-// Serve static files (uploaded images)
-var uploadRoot = builder.Configuration["Storage:UploadRoot"];
-
-if (!Path.IsPathFullyQualified(uploadRoot))
-{
-    uploadRoot = Path.Combine(Directory.GetCurrentDirectory(), uploadRoot);
-}
-
-// Ensure directory exists (auto-create)
-if (!Directory.Exists(uploadRoot))
-{
-    Directory.CreateDirectory(uploadRoot);
-    Console.WriteLine($"[Storage] Upload directory created at: {uploadRoot}");
-}
-else
-{
-    Console.WriteLine($"[Storage] Upload directory already exists: {uploadRoot}");
-}
-
-// Serve static files from this directory (with cache control)
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(uploadRoot),
-    RequestPath = "/uploads",
-    OnPrepareResponse = ctx =>
-    {
-        // 图片缓存1小时，减少服务器压力
-        ctx.Context.Response.Headers.Append(
-            "Cache-Control", 
-            app.Environment.IsDevelopment() 
-                ? "no-cache" 
-                : "public, max-age=3600");
-    }
-});
-
 // 🔧【修改这里】调整中间件顺序
 // 全局异常处理（必须在最前面）
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
@@ -256,6 +260,7 @@ app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 // 请求/响应日志（现在只记录，不再处理异常）
 app.UseMiddleware<RequestResponseLoggingMiddleware>();
 
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 

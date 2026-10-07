@@ -1,5 +1,6 @@
 using Backend.DTOs;
 using Backend.Services;
+using Backend.Validation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -14,15 +15,28 @@ public class ImagesController : ControllerBase
     private readonly IImageService _imageService;
     private readonly IImageGroupService _imageGroupService;
     private readonly IFileStorageService _fileStorage;
+    private readonly ILogger<ImagesController> _logger;
+    private readonly long _maxFileSizeBytes;
+    private readonly long _maxBatchSizeBytes;
+    private readonly int _maxBatchFileCount;
 
     public ImagesController(
         IImageService imageService,
         IImageGroupService imageGroupService,
-        IFileStorageService fileStorage)
+        IFileStorageService fileStorage,
+        IConfiguration configuration,
+        ILogger<ImagesController> logger)
     {
         _imageService = imageService;
         _imageGroupService = imageGroupService;
         _fileStorage = fileStorage;
+        _logger = logger;
+        _maxFileSizeBytes = configuration.GetValue<long>(
+            "UploadLimits:MaxFileSizeBytes", 100L * 1024 * 1024);
+        _maxBatchSizeBytes = configuration.GetValue<long>(
+            "UploadLimits:MaxBatchSizeBytes", 512L * 1024 * 1024);
+        _maxBatchFileCount = configuration.GetValue<int>(
+            "UploadLimits:MaxBatchFileCount", 500);
     }
 
     private int GetUserId()
@@ -108,7 +122,7 @@ public class ImagesController : ControllerBase
         [FromForm] string folderName,
         [FromForm] IFormFile file)
     {
-        if (file == null || file.Length == 0)
+        if (file is null)
         {
             return BadRequest(new { message = "没有上传文件" });
         }
@@ -120,6 +134,7 @@ public class ImagesController : ControllerBase
 
         try
         {
+            ImageUploadPolicy.Validate(file.FileName, file.Length, _maxFileSizeBytes);
             using var stream = file.OpenReadStream();
             var (imageDto, isDuplicate) = await _imageService.UploadAsync(queueId, folderName, file.FileName, stream);
 
@@ -130,17 +145,14 @@ public class ImagesController : ControllerBase
                 isDuplicate
             });
         }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-        catch (ArgumentException ex)
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or InvalidDataException)
         {
             return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { message = "上传图片时发生错误", details = ex.Message });
+            _logger.LogError(ex, "Image upload failed for queue {QueueId}", queueId);
+            return StatusCode(500, new { message = "上传图片时发生错误" });
         }
     }
 
@@ -164,6 +176,17 @@ public class ImagesController : ControllerBase
             return BadRequest(new { message = "文件和文件夹名称数量不匹配" });
         }
 
+        if (files.Count > _maxBatchFileCount)
+        {
+            return BadRequest(new { message = $"每次最多上传 {_maxBatchFileCount} 个文件" });
+        }
+
+        if (files.Sum(file => file.Length) > _maxBatchSizeBytes)
+        {
+            return BadRequest(new { message = $"批量上传总大小不能超过 {_maxBatchSizeBytes / 1024 / 1024} MB" });
+        }
+
+        var openedStreams = new List<Stream>();
         try
         {
             // 按文件夹组织文件
@@ -173,25 +196,24 @@ public class ImagesController : ControllerBase
             {
                 var file = files[i];
                 var folderName = folderNames[i];
+                ImageUploadPolicy.Validate(file.FileName, file.Length, _maxFileSizeBytes);
+
+                if (string.IsNullOrWhiteSpace(folderName))
+                {
+                    throw new InvalidDataException("文件夹名称不能为空");
+                }
 
                 if (!folderFiles.ContainsKey(folderName))
                 {
                     folderFiles[folderName] = new List<(string, Stream)>();
                 }
 
-                folderFiles[folderName].Add((file.FileName, file.OpenReadStream()));
+                var stream = file.OpenReadStream();
+                openedStreams.Add(stream);
+                folderFiles[folderName].Add((file.FileName, stream));
             }
 
             var result = await _imageService.UploadBatchAsync(queueId, folderFiles);
-
-            // 关闭所有流
-            foreach (var kvp in folderFiles)
-            {
-                foreach (var (_, stream) in kvp.Value)
-                {
-                    stream.Dispose();
-                }
-            }
 
             return Ok(new
             {
@@ -204,9 +226,21 @@ public class ImagesController : ControllerBase
                 skippedFiles = result.SkippedFiles
             });
         }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or InvalidDataException)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
-            return StatusCode(500, new { message = "批量上传时发生错误", details = ex.Message });
+            _logger.LogError(ex, "Batch image upload failed for queue {QueueId}", queueId);
+            return StatusCode(500, new { message = "批量上传时发生错误" });
+        }
+        finally
+        {
+            foreach (var stream in openedStreams)
+            {
+                await stream.DisposeAsync();
+            }
         }
     }
 
@@ -227,9 +261,17 @@ public class ImagesController : ControllerBase
             return BadRequest(new { message = "无效的路径" });
         }
 
-        var fileBytes = await _fileStorage.GetFileAsync(path);
+        Stream? fileStream;
+        try
+        {
+            fileStream = await _fileStorage.OpenReadAsync(path);
+        }
+        catch (InvalidDataException)
+        {
+            return BadRequest(new { message = "无效的路径" });
+        }
 
-        if (fileBytes == null)
+        if (fileStream == null)
         {
             return NotFound(new { message = "文件不存在" });
         }
@@ -246,7 +288,7 @@ public class ImagesController : ControllerBase
             _ => "application/octet-stream"
         };
 
-        return File(fileBytes, contentType);
+        return File(fileStream, contentType, enableRangeProcessing: true);
     }
 
     /// <summary>
@@ -269,7 +311,8 @@ public class ImagesController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { message = "删除图片时发生错误", details = ex.Message });
+            _logger.LogError(ex, "Image deletion failed for image {ImageId}", id);
+            return StatusCode(500, new { message = "删除图片时发生错误" });
         }
     }
 
@@ -293,7 +336,8 @@ public class ImagesController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { message = "批量删除时发生错误", details = ex.Message });
+            _logger.LogError(ex, "Batch image deletion failed");
+            return StatusCode(500, new { message = "批量删除时发生错误" });
         }
     }
 }
